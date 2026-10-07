@@ -13,3 +13,4 @@ tok_ref1.json
 server.log
 current_basket.json
 last_basket_id.txt
+analysis/bundle/disasm.hasm
