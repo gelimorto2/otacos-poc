@@ -1,0 +1,15 @@
+*.apk
+*.xapk
+*.so
+*.dex
+node_modules/
+venv/
+__pycache__/
+*.pyc
+*.log
+tok.json
+tok_ref1.json
+*.token
+server.log
+current_basket.json
+last_basket_id.txt
